@@ -2,17 +2,16 @@ import { body, validationResult } from "express-validator";
 import express, { Request, Response } from "express";
 
 import User from "../models/user";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 const router = express.Router();
 
 router.post(
-  "/register",
+  "/login",
   [
-    body("firstName", "First Name is required").isString(),
-    body("lastName", "Last Name is required").isString(),
     body("email", "Email is required").isEmail(),
-    body("password", "Password of minimum 6 characters required").isLength({
+    body("password", "Password needed to be minimum 6 characters").isLength({
       min: 6,
     }),
   ],
@@ -21,22 +20,30 @@ router.post(
     if (!errors.isEmpty()) {
       return res.status(400).json({ message: errors.array() });
     }
-    try {
-      let user = await User.findOne({
-        email: req.body.email,
-      });
 
-      if (user) {
-        return res.status(400).json({ message: "User already exists" });
+    const { email, password } = req.body;
+
+    try {
+      const user = await User.findOne({ email });
+
+      if (!user) {
+        return res.status(404).json({ message: "Invalid credentials" });
       }
 
-      user = new User(req.body);
-      await user.save();
+      const isMatch = await bcrypt.compare(password, user.password);
+
+      if (!isMatch) {
+        return res
+          .status(400)
+          .json({ message: "Username and Password don't match" });
+      }
 
       const token = jwt.sign(
         { userId: user.id },
         process.env.JWT_SECRET_KEY as string,
-        { expiresIn: "1d" }
+        {
+          expiresIn: "1d",
+        }
       );
 
       res.cookie("authToken", token, {
@@ -44,13 +51,11 @@ router.post(
         secure: process.env.NODE_ENV === "production",
         maxAge: 86400000,
       });
-
-      return res.sendStatus(200);
+      res.status(200).json({ userId: user._id });
     } catch (error) {
-      console.error("Error during registration:", error);
-      res.status(500).json({ message: "Something went wrong" });
+      console.log(error);
+      return res.status(500).json({ message: "Something went wrong" });
     }
   }
 );
-
 export default router;
